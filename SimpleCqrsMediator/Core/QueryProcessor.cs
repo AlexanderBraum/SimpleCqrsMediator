@@ -1,6 +1,6 @@
-﻿using SimpleCqrsMediator.Interface;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
+using SimpleCqrsMediator.Interface;
+using SimpleCqrsMediator.Interface.Core;
 using System;
 using System.Threading.Tasks;
 
@@ -10,47 +10,55 @@ namespace SimpleCqrsMediator.Core
     {
         private readonly IServiceProvider ServiceProvider;
         private readonly ILogger<QueryProcessor> logger;
+        private readonly IProcessorExceptionHandler ProcessorExceptionHandler;
 
         public QueryProcessor(
             IServiceProvider serviceProvider,
+            IProcessorExceptionHandler processorExceptionHandler,
             ILogger<QueryProcessor> logger)
         {
             ServiceProvider = serviceProvider;
+            ProcessorExceptionHandler = processorExceptionHandler;
             this.logger = logger;
         }
 
-        public async Task<TResult> ProcessAsync<TQuery, TResult>(TQuery query)
-            where TQuery : IQuery
+        public async Task<TResult> ProcessAsync<TResult>(IQuery<TResult> query)
         {
             try
             {
-                return await TryProcessAsync<TQuery, TResult>(query);
+                return await TryProcessAsync(query);
             }
             catch (Exception ex)
             {
-                LogException(ex);
-                throw;
+                ProcessorExceptionHandler.HandleException(ex);
+                return default;
             }
         }
 
-        private async Task<TResult> TryProcessAsync<TQuery, TResult>(TQuery query)
-            where TQuery : IQuery
+        public async Task<TResult> TryProcessAsync<TResult>(IQuery<TResult> query)
         {
-            var targerHandler = ServiceProvider.GetService<IQueryHandler<TQuery, TResult>>();
+            var queryType = query.GetType();
+            var handlerType = typeof(IQueryHandler<,>).MakeGenericType(queryType, typeof(TResult));
+            var handler = ServiceProvider.GetService(handlerType);
 
-            if (targerHandler == null)
+            if (handler is null)
             {
-                throw new CqrsException($"Dependency {nameof(IQueryHandler<TQuery, TResult>)}<{nameof(query)}>, can not be resolved.");
+                throw new CqrsException($"Dependency {handlerType.FullName} for query type {queryType.FullName} cannot be resolved.");
             }
 
-            var result = await targerHandler.HandleAsync(query);
-            return result;
-        }
+            var handleAsyncMethod = handlerType.GetMethod("HandleAsync");
+            if (handleAsyncMethod == null)
+            {
+                throw new CqrsException($"HandleAsync method not found on handler {handlerType.FullName}.");
+            }
 
-        private void LogException(Exception ex)
-        {
-            var exceptionStr = ex.ToString();
-            logger.LogError(exceptionStr);
+            var task = handleAsyncMethod.Invoke(handler, new object[] { query }) as Task<TResult>;
+            if (task is null)
+            {
+                throw new CqrsException($"HandleAsync invocation returned null for handler {handlerType.FullName}.");
+            }
+
+            return await task;
         }
     }
 }

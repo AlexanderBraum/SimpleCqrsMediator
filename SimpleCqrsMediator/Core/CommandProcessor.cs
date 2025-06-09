@@ -1,6 +1,7 @@
-﻿using SimpleCqrsMediator.Interface;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SimpleCqrsMediator.Interface;
+using SimpleCqrsMediator.Interface.Core;
 using System;
 using System.Threading.Tasks;
 
@@ -10,12 +11,15 @@ namespace SimpleCqrsMediator.Core
     {
         private readonly IServiceProvider ServiceProvider;
         private readonly ILogger<CommandProcessor> logger;
+        private readonly IProcessorExceptionHandler ProcessorExceptionHandler;
 
         public CommandProcessor(
             IServiceProvider serviceProvider,
+            IProcessorExceptionHandler processorExceptionHandler,
             ILogger<CommandProcessor> logger)
         {
             ServiceProvider = serviceProvider;
+            ProcessorExceptionHandler = processorExceptionHandler;
             this.logger = logger;
         }
 
@@ -28,8 +32,8 @@ namespace SimpleCqrsMediator.Core
             }
             catch (Exception ex)
             {
-                LogException(ex);
-                throw;
+                ProcessorExceptionHandler.HandleException(ex);
+                return default;
             }
         }
 
@@ -54,8 +58,8 @@ namespace SimpleCqrsMediator.Core
             }
             catch (Exception ex)
             {
-                LogException(ex);
-                throw;
+                ProcessorExceptionHandler.HandleException(ex);
+                return default;
             }
         }
 
@@ -71,12 +75,6 @@ namespace SimpleCqrsMediator.Core
 
             var result = targerHandler.HandleAsync(command);
             return result;
-        }
-
-        private void LogException(Exception ex)
-        {
-            var exceptionStr = ex.ToString();
-            logger.LogError(ex, exceptionStr);
         }
     }
 }
