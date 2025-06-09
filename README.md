@@ -40,7 +40,7 @@ public class TestResultDto
 }
 ```
 
-Next, you need to create a handler for the query or command by implementing the `IQueryHandler<TQuery, TResult>` or `ICommandHandler<TCommand>` (or `ICommandHandler<TCommand, TResult>`) interface:
+Next, you need to create a handler for the query or command by implementing the `IQueryHandler<TQuery, TResult>` or `ICommandHandler<TCommand>` interface:
 ```csharp
 public class TestQueryHandler(
     HttpClient HttpClient

@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using SimpleCqrsMediator.Interface;
+﻿using SimpleCqrsMediator.Interface;
 using SimpleCqrsMediator.Interface.Core;
 using System;
 using System.Threading.Tasks;
@@ -10,21 +8,18 @@ namespace SimpleCqrsMediator.Core
     public class CommandProcessor : ICommandProcessor
     {
         private readonly IServiceProvider ServiceProvider;
-        private readonly ILogger<CommandProcessor> logger;
         private readonly IProcessorExceptionHandler ProcessorExceptionHandler;
 
         public CommandProcessor(
             IServiceProvider serviceProvider,
-            IProcessorExceptionHandler processorExceptionHandler,
-            ILogger<CommandProcessor> logger)
+            IProcessorExceptionHandler processorExceptionHandler)
         {
             ServiceProvider = serviceProvider;
             ProcessorExceptionHandler = processorExceptionHandler;
-            this.logger = logger;
         }
 
 
-        public Task ProcessAsync<TCommand>(TCommand command) where TCommand : ICommand
+        public Task ProcessAsync(ICommand command)
         {
             try
             {
@@ -37,24 +32,37 @@ namespace SimpleCqrsMediator.Core
             }
         }
 
-        private Task TryProcessAsync<TCommand>(TCommand command)
-            where TCommand : ICommand
+        private Task TryProcessAsync(ICommand command)
         {
-            var targerHandler = ServiceProvider.GetService<ICommandHandler<TCommand>>();
+            var commandType = command.GetType();
+            var handlerType = typeof(ICommandHandler<>).MakeGenericType(commandType);
+            var handler = ServiceProvider.GetService(handlerType);
 
-            if (targerHandler == null)
+            if (handler is null)
             {
-                throw new CqrsException($"Dependency {nameof(ICommandHandler<TCommand>)}<{nameof(command)}>, can not be resolved.");
+                throw new CqrsException($"Dependency {handlerType.FullName} for command type {commandType.FullName} cannot be resolved.");
             }
 
-            return targerHandler.HandleAsync(command);
+            var handleAsyncMethod = handlerType.GetMethod("HandleAsync");
+            if (handleAsyncMethod == null)
+            {
+                throw new CqrsException($"HandleAsync method not found on handler {handlerType.FullName}.");
+            }
+
+            var task = handleAsyncMethod.Invoke(handler, new object[] { command }) as Task;
+            if (task is null)
+            {
+                throw new CqrsException($"HandleAsync invocation returned null for handler {handlerType.FullName}.");
+            }
+
+            return task;
         }
 
-        public Task<TResult> ProcessAsync<TCommand, TResult>(TCommand command) where TCommand : ICommand
+        public Task<TResult> ProcessAsync<TResult>(ICommand<TResult> command)
         {
             try
             {
-                return TryProcessAsync<TCommand, TResult>(command);
+                return TryProcessAsync(command);
             }
             catch (Exception ex)
             {
@@ -63,18 +71,30 @@ namespace SimpleCqrsMediator.Core
             }
         }
 
-        private Task<TResult> TryProcessAsync<TCommand, TResult>(TCommand command)
-            where TCommand : ICommand
+        private async Task<TResult> TryProcessAsync<TResult>(ICommand<TResult> command)
         {
-            var targerHandler = ServiceProvider.GetService<ICommandHandler<TCommand, TResult>>();
+            var commandType = command.GetType();
+            var handlerType = typeof(ICommandHandler<,>).MakeGenericType(commandType, typeof(TResult));
+            var handler = ServiceProvider.GetService(handlerType);
 
-            if (targerHandler == null)
+            if (handler is null)
             {
-                throw new CqrsException($"Dependency {nameof(ICommandHandler<TCommand, TResult>)}<{nameof(command)}>, can not be resolved.");
+                throw new CqrsException($"Dependency {handlerType.FullName} for command type {commandType.FullName} cannot be resolved.");
             }
 
-            var result = targerHandler.HandleAsync(command);
-            return result;
+            var handleAsyncMethod = handlerType.GetMethod("HandleAsync");
+            if (handleAsyncMethod == null)
+            {
+                throw new CqrsException($"HandleAsync method not found on handler {handlerType.FullName}.");
+            }
+
+            var task = handleAsyncMethod.Invoke(handler, new object[] { command }) as Task<TResult>;
+            if (task is null)
+            {
+                throw new CqrsException($"HandleAsync invocation returned null for handler {handlerType.FullName}.");
+            }
+
+            return await task;
         }
     }
 }
